@@ -1,32 +1,21 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"net/http"
 
-	"github.com/diegolopezcode/Go-ApiImage-AwsS3/configs"
+	"github.com/diegolopezcode/Go-ApiImage-AwsS3/handlers"
 )
 
-type Client struct {
-	Token     string
-	hc        http.Client
-	Remaining int
-}
-
-// NewClient returns a new Client for the given token.
-func NewClient(token string) *Client {
-	c := http.Client{}
-	return &Client{
-		Token: token,
-		hc:    c,
-	}
-}
-
 func main() {
-	var TOKEN, err = configs.GetConfig("TOKEN")
+	http.HandleFunc("/api/v1/photo", handlers.GetPhoto)
+	port := "8080"
+	err := http.ListenAndServe(":"+port, nil)
 	if err != nil {
-		log.Fatal("Error loading .env file")
-		return
+		fmt.Printf("Error: %s", err)
 	}
+
+	/* c := handlers.NewClient(TOKEN)
+	result, err := handlers.GetPhoto(c, "cat") */
 
 }

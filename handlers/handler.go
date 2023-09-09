@@ -1,10 +1,21 @@
 package handlers
 
+import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+
+	"github.com/diegolopezcode/Go-ApiImage-AwsS3/configs"
+)
+
 const (
 	// S3Bucket is the bucket we will use
-	S3Bucket = "go-aws-s3"
-	photoApi = "https://api.unsplash.com/photos/random"
-	videoApi = "https://api.pexels.com/videos"
+	photoApi   = "https://api.pexels.com/v1/photos"
+	videoApi   = "https://api.pexels.com/videos"
+	awsRegion  = "your-aws-region"
+	bucketName = "your-s3-bucket-name"
+	objectKey  = "images/image.jpg"
 )
 
 type SearchPhoto struct {
@@ -39,18 +50,84 @@ type PhotoSrc struct {
 	Tiny      string `json:"tiny"`
 }
 
-func getPhoto() {
+type Client struct {
+	Token     string
+	Hc        http.Client
+	Remaining int
+}
+
+var TOKEN, err = configs.GetConfig("API_KEY_PEXEL")
+
+// NewClient returns a new Client for the given token.
+func NewClient(token string) *Client {
+	c := http.Client{}
+	return &Client{
+		Token: token,
+		Hc:    c,
+	}
+}
+
+func SearchPhotos(c *Client, query string) (*SearchPhoto, error) {
+	return nil, nil
+}
+
+func GetPhoto(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+	fmt.Print(
+		"r.URL.Query(): ", r.URL.Query(),
+	)
+	// Get the photo
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "Id not found", http.StatusBadRequest)
+	}
+	fmt.Print("id: ", id)
+	req, err := http.NewRequest(http.MethodGet, photoApi+"/"+id, nil)
+	if err != nil {
+		http.Error(w, "Error getting photo", http.StatusInternalServerError)
+	}
+
+	req.Header.Set("Authorization", TOKEN)
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "Error getting photo", http.StatusInternalServerError)
+	}
+	defer resp.Body.Close()
+
+	// Get the photo
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, "Error getting photo", http.StatusInternalServerError)
+	}
+
+	pht := Photo{}
+	err = json.Unmarshal([]byte(body), &pht)
+	if err != nil {
+		http.Error(w, "Error with the data, review provider", http.StatusInternalServerError)
+	}
+
+	res, err := json.Marshal(pht)
+	if err != nil {
+		http.Error(w, "Error with the data, review provider", http.StatusInternalServerError)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(res)
 
 }
 
-func getPhotos() {
+func GetPhotos() {
 
 }
 
-func addPhotoS3() {
+func AddPhotoS3(urlImage string) {
 
 }
 
-func getVideo() {
+func GetVideo() {
 
 }
