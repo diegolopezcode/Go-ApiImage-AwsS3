@@ -2,10 +2,14 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/diegolopezcode/Go-ApiImage-AwsS3/configs"
 )
 
@@ -124,8 +128,41 @@ func GetPhotos() {
 
 }
 
-func AddPhotoS3(urlImage string) {
+func AddPhotoS3(urlImage string) error {
+	resp, err := http.Get(urlImage)
+	if err != nil {
+		return errors.New("Error downloadin photo")
+	}
+	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return errors.New("Error downloadin photo with status code: " + string(resp.StatusCode))
+	}
+
+	// Create an AWS session
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String(awsRegion),
+	})
+	if err != nil {
+		return fmt.Errorf("Error creating AWS session: %v", err)
+	}
+	// Create an S3 client
+	s3Client := s3.New(sess)
+
+	// Upload the image to S3
+	_, err = s3Client.PutObject(&s3.PutObjectInput{
+		Bucket:        aws.String(bucketName),
+		Key:           aws.String(objectKey),
+		Body:          resp.Body,
+		ContentType:   aws.String("image/jpeg"),
+		ContentLength: aws.Int64(resp.ContentLength),
+	})
+	if err != nil {
+		return fmt.Errorf("Error uploading image to S3: %v", err)
+	}
+
+	fmt.Println("Image uploaded successfully to S3")
+	return nil
 }
 
 func GetVideo() {
