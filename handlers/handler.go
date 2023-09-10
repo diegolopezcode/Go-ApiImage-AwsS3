@@ -1,25 +1,26 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/diegolopezcode/Go-ApiImage-AwsS3/configs"
 )
 
 const (
 	// S3Bucket is the bucket we will use
-	photoApi   = "https://api.pexels.com/v1/photos"
-	videoApi   = "https://api.pexels.com/videos"
-	awsRegion  = "your-aws-region"
-	bucketName = "your-s3-bucket-name"
-	objectKey  = "images/image.jpg"
+	photoApi  = "https://api.pexels.com/v1/photos"
+	videoApi  = "https://api.pexels.com/videos"
+	objectKey = "images/image.jpg"
 )
 
 type SearchPhoto struct {
@@ -60,7 +61,13 @@ type Client struct {
 	Remaining int
 }
 
-var TOKEN, err = configs.GetConfig("API_KEY_PEXEL")
+var (
+	TOKEN, _      = configs.GetConfig("API_KEY_PEXEL")
+	AWS_KEY, _    = configs.GetConfig("AWS_KEY")
+	AWS_SECRET, _ = configs.GetConfig("AWS_ACCESS_KEY_ID")
+	awsRegion, _  = configs.GetConfig("AWS_REGION")
+	bucketName, _ = configs.GetConfig("AWS_BUCKET_NAME")
+)
 
 // NewClient returns a new Client for the given token.
 func NewClient(token string) *Client {
@@ -79,15 +86,13 @@ func GetPhoto(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
-	fmt.Print(
-		"r.URL.Query(): ", r.URL.Query(),
-	)
+
 	// Get the photo
 	id := r.URL.Query().Get("id")
 	if id == "" {
 		http.Error(w, "Id not found", http.StatusBadRequest)
 	}
-	fmt.Print("id: ", id)
+
 	req, err := http.NewRequest(http.MethodGet, photoApi+"/"+id, nil)
 	if err != nil {
 		http.Error(w, "Error getting photo", http.StatusInternalServerError)
@@ -110,12 +115,18 @@ func GetPhoto(w http.ResponseWriter, r *http.Request) {
 	pht := Photo{}
 	err = json.Unmarshal([]byte(body), &pht)
 	if err != nil {
-		http.Error(w, "Error with the data, review provider", http.StatusInternalServerError)
+		http.Error(w, "Error with the data, review provider1", http.StatusInternalServerError)
 	}
 
 	res, err := json.Marshal(pht)
 	if err != nil {
-		http.Error(w, "Error with the data, review provider", http.StatusInternalServerError)
+		http.Error(w, "Error with the data, review provider2", http.StatusInternalServerError)
+	}
+
+	// Add photo to S3
+	err = AddPhotoS3(pht.Src.Original, pht.Alt)
+	if err != nil {
+		http.Error(w, "Error with the data, review provider3", http.StatusInternalServerError)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -128,37 +139,46 @@ func GetPhotos() {
 
 }
 
-func AddPhotoS3(urlImage string) error {
+func AddPhotoS3(urlImage, name string) error {
 	resp, err := http.Get(urlImage)
 	if err != nil {
-		return errors.New("Error downloadin photo")
+		return errors.New("error downloadin photo")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return errors.New("Error downloadin photo with status code: " + string(resp.StatusCode))
+		return errors.New("error downloadin photo with status code: " + string(resp.StatusCode))
+	}
+
+	s3Config := &aws.Config{
+		Region: aws.String(awsRegion),
+		Credentials: credentials.NewStaticCredentials(
+			AWS_SECRET,
+			AWS_KEY,
+			"",
+		),
 	}
 
 	// Create an AWS session
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(awsRegion),
-	})
+	sess, err := session.NewSession(s3Config)
 	if err != nil {
-		return fmt.Errorf("Error creating AWS session: %v", err)
+		return fmt.Errorf("error creating AWS session: %v", err)
 	}
-	// Create an S3 client
-	s3Client := s3.New(sess)
 
 	// Upload the image to S3
-	_, err = s3Client.PutObject(&s3.PutObjectInput{
-		Bucket:        aws.String(bucketName),
-		Key:           aws.String(objectKey),
-		Body:          resp.Body,
-		ContentType:   aws.String("image/jpeg"),
-		ContentLength: aws.Int64(resp.ContentLength),
-	})
+
+	uploader := s3manager.NewUploader(sess)
+	input := &s3manager.UploadInput{
+		Bucket:      aws.String(bucketName),
+		Key:         aws.String(name),
+		Body:        resp.Body,
+		ContentType: aws.String(resp.Header.Get("Content-Type")),
+		Expires:     aws.Time(time.Now().Add(3 * time.Minute)), // Equals 3 minutes
+	}
+
+	_, err = uploader.UploadWithContext(context.Background(), input)
 	if err != nil {
-		return fmt.Errorf("Error uploading image to S3: %v", err)
+		return fmt.Errorf("error uploading to S3: %v", err)
 	}
 
 	fmt.Println("Image uploaded successfully to S3")
